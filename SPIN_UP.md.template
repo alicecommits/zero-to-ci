@@ -1,0 +1,18 @@
+MODE: new | augment
+
+## Stack
+FRONTEND:      react-vite-ts       # implemented
+BACKEND:       fill-me-in          # not yet extracted
+
+## CI/CD
+CI:            fill-me-in          # not yet extracted
+RUNNER_CI:     fill-me-in
+RUNNER_AGENTS: fill-me-in          # later stage
+AGENTS:        fill-me-in          # later stage — will carry LINT_FIX_MODE
+
+## Quality
+DEPENDABOT:    fill-me-in          # not yet extracted
+PLAYWRIGHT:    fill-me-in          # not yet extracted
+
+## Project
+PROJECT_NAME:  fill-me-in
