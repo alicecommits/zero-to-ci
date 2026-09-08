@@ -10,6 +10,17 @@ dropping one new file, not growing an if/elif chain in this file.
 
 Usage so far:
   python3 scripts/spin_up.py --frontend react-vite-ts
+  python3 scripts/spin_up.py --frontend react-vite-ts --frontend-pm yarn
+
+--frontend-pm is registered here (unlike stack-specific opt-in flags
+like augment_legacy_linting, which stay manual-only, invoked directly
+against checklist_interpreter.py) because it's a structural bootstrap
+decision, not a remediation judgment call — see
+major-evolutions/6_PACKAGE-MANAGER-CHOICE-HANDOFF.md. This file still
+only REGISTERS the flag and forwards its value; it doesn't know or care
+what npm/yarn/pnpm even mean — that logic lives entirely in
+scripts/stacks/frontend/react-vite-ts/package_manager_setup.py, kept
+here only as generic dispatch, same as --frontend itself.
 """
 import argparse
 import importlib.util
@@ -33,6 +44,14 @@ def load_stack_module(category: str, stack: str):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--frontend", default="")
+    ap.add_argument(
+        "--frontend-pm", default="npm",
+        # No choices=[...] here on purpose: validating an actual PM
+        # value is package_manager_setup.py's job (ALLOWED_PMS), not
+        # this dispatcher's — spin_up.py stays generic, doesn't embed
+        # any one stack's ecosystem knowledge. Passing garbage here
+        # surfaces as a clear argparse error one level down instead.
+    )
     ap.add_argument("--agents", default="")  # stub — later stage
     args = ap.parse_args()
 
@@ -45,7 +64,7 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(1)
-        module.run(SKILLS_DIR)
+        module.run(SKILLS_DIR, frontend_pm=args.frontend_pm)
 
     if args.agents:
         print(f"==> AGENTS={args.agents} requested but not implemented yet.", file=sys.stderr)

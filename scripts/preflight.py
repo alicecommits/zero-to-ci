@@ -43,6 +43,10 @@ def main():
             "react-vite-ts checklist-rules-react-vite-ts.yaml present",
             SCRIPTS_DIR.parent / "skills" / "frontend" / "react-vite-ts" / "checklist-rules-react-vite-ts.yaml",
         ),
+        check_path(
+            "react-vite-ts package_manager_setup.py present",
+            SCRIPTS_DIR / "stacks" / "frontend" / "react-vite-ts" / "package_manager_setup.py",
+        ),
         check_pyyaml_importable(),
     ]
 

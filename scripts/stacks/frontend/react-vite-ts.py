@@ -24,6 +24,8 @@ Opt-in remediation clusters (e.g. linter-baseline-remediation, gated by
 `requires_flag: augment_legacy_linting`) are NOT wired through here — same
 "manual step, not automatic" spirit the old --apply flag had. Run
 checklist_interpreter.py directly with --flag if you want one of those.
+`--frontend-pm` is a deliberate exception to that "manual only" rule —
+see the `run()` docstring below for why.
 """
 import subprocess
 import sys
@@ -33,15 +35,28 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent  # scripts/
 sys.path.insert(0, str(SCRIPTS_DIR / "cross-cutting"))
 from colors import BLUE, RESET  # noqa: E402
 
+PM_SETUP_SCRIPT = Path(__file__).resolve().parent / "react-vite-ts" / "package_manager_setup.py"
 
-def run(skills_dir: Path) -> None:
+
+def run(skills_dir: Path, frontend_pm: str = "npm") -> None:
+    """frontend_pm is wired all the way through from spin_up.py's
+    --frontend-pm flag — unlike augment_legacy_linting/augment_legacy_tsconfig
+    above, this one IS threaded through the dispatcher. Reason: those two
+    gate opt-in REMEDIATION of an already-existing legacy project (a
+    judgment call a human should invoke deliberately); package manager
+    choice is a structural decision at PROJECT-CREATION time — which
+    subprocess commands even run during bootstrap — not a remediation
+    flag, so it belongs in the main dispatch path. See
+    major-evolutions/6_PACKAGE-MANAGER-CHOICE-HANDOFF.md for the full
+    reasoning and the corepack-vs-npm design this delegates to."""
     stack_dir = skills_dir / "frontend" / "react-vite-ts"
 
     print("==> FRONTEND=react-vite-ts")
 
     if not Path("package.json").exists():
         print("  - no package.json found — bootstrapping via create-vite (react-ts template)")
-        print(f"    {BLUE}INFO:{RESET} this custom bootstrapping will auto-run npm install, NOT npm run dev")
+        not_run = "npm run dev" if frontend_pm == "npm" else "npm install, npm run dev"
+        print(f"    {BLUE}INFO:{RESET} this custom bootstrapping will auto-run {frontend_pm} install — will NOT run: {not_run}")
         # Live-confirmed against create-vite 9.2.0, react-ts template ONLY.
         # Two separate subprocess calls, not one: --no-interactive scaffolds
         # files only, it does NOT run install or start the dev server —
@@ -60,7 +75,13 @@ def run(skills_dir: Path) -> None:
             ],
             check=True,
         )
-        subprocess.run(["npm", "install"], check=True)
+        # Delegated to a dedicated script, not inlined here — see that
+        # script's own docstring for why (corepack enable/prepare gate,
+        # npm fallback) and for the future cross-cutting extraction note.
+        subprocess.run(
+            [sys.executable, str(PM_SETUP_SCRIPT), "--pm", frontend_pm, "--repo-dir", "."],
+            check=True,
+        )
         # WARNING: this exact flag combination was verified only against
         # the react-ts template on create-vite 9.2.0. A future stack flag
         # adding another create-vite template (vue-ts, etc.) must NOT

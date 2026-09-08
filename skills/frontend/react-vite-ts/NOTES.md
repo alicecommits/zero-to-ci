@@ -8,13 +8,19 @@ judgment content.
 ## What FRONTEND=react-vite-ts unpacks
 
 ```
-spin_up.py --frontend react-vite-ts
+spin_up.py --frontend react-vite-ts [--frontend-pm npm|yarn|pnpm]
   → scripts/stacks/frontend/react-vite-ts.py (thin dispatch pointer)
       → Step 1 (only if ./package.json doesn't exist yet — this ONE
         file-existence check is the entire former MODE=new/augment
         distinction, collapsed 2026-09-07, see
         major-evolutions/3_MODE-NEW-SIMPLIFICATION-HANDOFF.md):
         npx create-vite@latest . --template react-ts
+        → then scripts/stacks/frontend/react-vite-ts/package_manager_setup.py
+          --pm <frontend_pm> --repo-dir . (2026-09-08 — see
+          major-evolutions/6_PACKAGE-MANAGER-CHOICE-HANDOFF.md. npm:
+          unconditional `npm install`, unchanged default. yarn/pnpm:
+          corepack enable + prepare --activate as one atomic gate, falls
+          back to npm install loudly on any failure)
       → Step 2, always, new project or old:
         scripts/cross-cutting/checklist_interpreter.py
           --target ./package.json
@@ -127,6 +133,35 @@ skills/frontend/react-vite-ts/
                                by any cluster — Tier 3 in that handoff
                                (.env/.env.*, .claude//CLAUDE.md) are both
                                present here but still deliberately unbuilt.
+```
+
+## Executable logic this stack owns, outside skills/ (scripts/ side)
+
+```
+scripts/stacks/frontend/
+  react-vite-ts.py             thin dispatch pointer (see top of this file)
+  react-vite-ts/
+    package_manager_setup.py   2026-09-08 — handles the corepack-vs-npm
+                               decision for --frontend-pm (npm/yarn/pnpm)
+                               at bootstrap time. Invoked by
+                               react-vite-ts.py via subprocess, same
+                               pattern as its checklist_interpreter.py
+                               call. See
+                               major-evolutions/6_PACKAGE-MANAGER-CHOICE-
+                               HANDOFF.md for the full corepack
+                               enable+prepare atomic-gate design and the
+                               npm-fallback behavior.
+                               NOT YET EXTRACTED, same status as several
+                               skills/ rows in CONFIG_OWNERSHIP_MATRIX.md
+                               — nothing inside it is react-vite-ts-
+                               specific (takes a bare repo_dir + pm
+                               string), it's nested here only because
+                               this is still the only Node-based stack.
+                               The day a second one lands (nodejs-nestjs
+                               backend, most likely), promote this file
+                               to scripts/cross-cutting/
+                               package_manager_setup.py as a straight
+                               file move — don't do it preemptively.
 ```
 
 `package.json.tooling.snippet.json` — REMOVED 2026-09-07, per
