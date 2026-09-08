@@ -110,7 +110,10 @@ discipline is part of what makes this repo worth pointing someone to.
     money-disk-ui package.json (clean — zero installs needed), a synthetic
     fresh scaffold, and all 4 tsconfig shape outcomes (single/split/
     unrecognized/absent). `CONFIG_OWNERSHIP_MATRIX.md` tracks, per cluster,
-    what each one contributes to `.gitignore` and to the pre-commit hook.
+    what each one contributes to `.gitignore` and to the pre-commit hook;
+    `skills/frontend/react-vite-ts/TRANSVERSAL-QUALITY-MATRIX.md` is the
+    same idea narrowed to this one stack, laid out as a cluster ×
+    transversal-gate table.
   - This repo is otherwise stdlib-only by policy; PyYAML is the one
     explicit exception (`requirements.txt`) — see that file for why.
   - Backend (Ruff/Pyright), CI workflow, dependabot, Playwright:

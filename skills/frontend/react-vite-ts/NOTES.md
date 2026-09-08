@@ -83,6 +83,19 @@ skills/frontend/react-vite-ts/
                                test-script) also each carry one
                                ensure_block_in_gitignore step — see
                                4_GITIGNORE-HANDOFF.md
+  TRANSVERSAL-QUALITY-MATRIX.md  2026-09-08 — sibling reference to the
+                               yaml above: a cluster (vertical) x
+                               transversal-gate (horizontal: .gitignore,
+                               pre-commit, future CI) table, showing
+                               which clusters feed each shared gate and
+                               how (direct step vs. enabling-only
+                               participation, e.g. husky-setup creates
+                               .husky/pre-commit but doesn't itself add a
+                               managed line — linter-baseline-remediation
+                               same story for .eslintcache's actual
+                               consumer). Stack-scoped for now, same
+                               "generalize once a second stack forces it"
+                               note as everywhere else in this file.
   package-versions.yaml       single source of truth for every version pin
                                the rules file references via
                                "<package.version>" placeholders — resolved
