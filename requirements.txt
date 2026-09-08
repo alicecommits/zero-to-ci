@@ -1,0 +1,8 @@
+# This repo is otherwise stdlib-only by deliberate policy (see README.md /
+# CONFIG_OWNERSHIP_MATRIX.md). PyYAML is the one explicit exception: the
+# checklist-cluster engine (scripts/cross-cutting/checklist_interpreter.py)
+# reads its rule files as YAML, by explicit design choice, for human-
+# readable rule authoring — see
+# scripts/cross-cutting/CHECKLIST_INTERPRETER_HANDOFF.md.
+# Install with: pip install -r requirements.txt
+pyyaml>=6.0.3

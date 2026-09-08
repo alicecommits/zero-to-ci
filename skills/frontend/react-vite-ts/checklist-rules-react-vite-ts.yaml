@@ -1,0 +1,748 @@
+# checklist-rules.yaml
+#
+# Formal schema: every checklist step has a "type" field the interpreter
+# dispatches on. Types (this list was missing create_file for a while —
+# fixed 2026-09-07 alongside adding file_content_present; tsconfig_file_shape_report,
+# tsconfig_environment_report, and the target_file_by_shape extension to
+# object_key_value added the same day, see 2_TSCONFIG-HANDOFF.md;
+# ensure_block_in_gitignore added the same day too, see 4_GITIGNORE-HANDOFF.md):
+#   dependency_presence   -> on_missing installs, else silent pass
+#   script_value           -> on_missing_key adds; present-but-different
+#                              becomes a CONFLICT, never overwritten
+#   object_key_value       -> same contract as script_value, for nested
+#                              keys like lint-staged's glob entries —
+#                              first real exercise is lint-staged-hooks
+#                              below (was untested at write time; now is).
+#                              Reads package.json by default. A step
+#                              carrying `target_file_by_shape: {shape:
+#                              filename}` points it at a DIFFERENT on-disk
+#                              JSON file instead — filename resolved at
+#                              eval time from tsconfig-file-shape-report's
+#                              outcome (see get_report_outcome() in the
+#                              interpreter), since the YAML can't
+#                              statically know which file applies. No
+#                              entry for the current shape -> silent
+#                              no-op. First real use: tsconfig-hygiene-
+#                              remediation below, the first step type ever
+#                              pointed at a file other than package.json.
+#   multi_presence_report   -> pure diagnostic, no remediation, ever —
+#                              never produces install/add_scripts/
+#                              add_object_keys output of any kind. Checks
+#                              2 named `staged[section]` DEPENDENCY entries
+#                              specifically — see tsconfig_file_shape_report
+#                              below for why a filesystem-existence check
+#                              needed its own bespoke type instead of
+#                              reusing this one.
+#   install_if_absent_all   -> checks a LIST of {section,name} pairs;
+#                              only installs/adds scripts if ALL of them
+#                              are absent. Used for "bring a neglected
+#                              project up to baseline" remediation where
+#                              a single dependency_presence check isn't
+#                              enough (need to confirm neither of two
+#                              alternative tools is present before acting).
+#   create_file             -> file exists on repo_dir -> "skip"; else
+#                              proposes "create from template: <path>".
+#                              Never reads the template itself (same as
+#                              every step here — the interpreter proposes,
+#                              a human applies).
+#   file_content_present    -> checks a real on-disk file for a
+#                              distinctive marker substring, NOT a full
+#                              diff against `template` (same
+#                              never-reads-templates rule as create_file).
+#                              Marker found -> confirmed/done. Marker
+#                              absent (file missing entirely, or exists
+#                              without it) -> proposes appending. Always
+#                              an ADD, never proposes overwriting existing
+#                              content. Two ways to give the marker: a
+#                              literal `marker` string (pm-agnostic lines,
+#                              e.g. "npx lint-staged" — see
+#                              lint-staged-hook-wiring-into-pre-commit),
+#                              or `script: <name>`, rendered through
+#                              run_command() into the pm-correct
+#                              invocation for the detected package
+#                              manager (e.g. "yarn typecheck" / "npm run
+#                              typecheck" / "pnpm typecheck" — see
+#                              typecheck-hook-wiring-into-pre-commit).
+#                              Use `script` whenever the line actually
+#                              invokes the package manager; `marker` when
+#                              it doesn't (npx, or any other pm-agnostic
+#                              binary).
+#   tsconfig_file_shape_report -> bespoke, single-purpose: classifies which
+#                              tsconfig FILE SHAPE is present — single
+#                              tsconfig.json / split tsconfig.json+
+#                              tsconfig.app.json / unrecognized / absent.
+#                              Not a multi_presence_report variant (that
+#                              type's outcome logic is hardcoded around 2
+#                              named dependency-presence checks, not 2
+#                              named file-existence checks with different
+#                              combinatorics) and not generalized into a
+#                              reusable "shape detector" framework — this
+#                              repo's own discipline is not to generalize
+#                              preemptively (see 2_TSCONFIG-HANDOFF.md's
+#                              explicit non-goals). Diagnostic-only, NEVER
+#                              remediates, under any flag: see
+#                              tsconfig-file-shape-report below for why.
+#   tsconfig_environment_report -> reports `fields` (a YAML-declared list,
+#                              e.g. target/lib/module/moduleResolution/
+#                              jsx/types) verbatim from whichever file
+#                              `target_file_by_shape` resolves to for the
+#                              CURRENT run, via tsconfig-file-shape-report's
+#                              outcome. Silently contributes nothing if
+#                              that shape was absent/unrecognized — the
+#                              shape report already explained why.
+#                              Diagnostic-only, PERMANENTLY: see
+#                              tsconfig-environment-report below for why
+#                              no flag will ever unlock changing these.
+#   ensure_block_in_gitignore -> content-based (NOT position-based) check:
+#                              are ALL of `block`'s meaningful (non-comment,
+#                              non-blank) lines already present ANYWHERE in
+#                              .gitignore, any order, possibly interspersed
+#                              with unrelated content? All present -> silent
+#                              no-op, even if the human's version is
+#                              differently formatted or positioned. ANY
+#                              missing -> proposes appending the ENTIRE
+#                              block verbatim (comment header included) as
+#                              one atomic unit — never a partial append,
+#                              never touching what's already there. No
+#                              `target` field — always .gitignore, by
+#                              design. No `template` file reference either
+#                              — `block` is inline YAML content, short
+#                              enough to carry directly (see
+#                              4_GITIGNORE-HANDOFF.md). Deliberately a
+#                              SEPARATE step type from any future
+#                              pre-commit line-append mechanism (see
+#                              5_PRECOMMIT-HANDOFF.md) despite the surface
+#                              similarity — gitignore blocks are
+#                              order-independent and multi-line;
+#                              pre-commit lines are order-dependent single
+#                              invocations in an executed shell script.
+#                              Don't generalize the two into one interface.
+#   ensure_line_in_precommit -> TWO-PHASE, unlike every other step type
+#                              here — see 5_PRECOMMIT-HANDOFF.md. Phase 1
+#                              (per-step, during normal evaluation): just
+#                              stages {command, order} into
+#                              plan['precommit_lines']; does NOT read
+#                              .husky/pre-commit or decide anything yet.
+#                              Phase 2 (reconcile_precommit_lines(), once,
+#                              after every rule has evaluated): sorts by
+#                              `order` (independent of the owning rule's
+#                              `priority` — the correct FILE order is
+#                              often the REVERSE of evaluation order),
+#                              reads the real file once, then: none of the
+#                              managed lines present (or file missing
+#                              entirely) -> propose the full ordered block
+#                              as one atomic unit; ALL present -> confirmed
+#                              no-op; SOME present -> conflicts entry,
+#                              never guesses where to splice the rest in.
+#                              Two ways to give the line, same convention
+#                              as file_content_present: literal `command`
+#                              (pm-agnostic, e.g. "npx lint-staged") or
+#                              `script` (rendered through run_command()
+#                              for the pm-correct form). Deliberately a
+#                              SIBLING to ensure_block_in_gitignore, not
+#                              the same mechanism — order-DEPENDENT single
+#                              lines in an executed shell script vs.
+#                              order-INDEPENDENT multi-line blocks; don't
+#                              generalize the two.
+#
+# Any string value anywhere in this file shaped exactly like
+# "<package-name.version>" is a PLACEHOLDER, resolved by
+# resolve_placeholders() right after this file is parsed, against the
+# companion package-versions.yaml (same directory, filename convention,
+# no CLI flag needed). Plain YAML has no templating of its own — this is
+# purely an interpreter-side substitution pass, applied once, before any
+# rule is evaluated. An unresolvable placeholder (package missing from
+# package-versions.yaml) fails loudly at that point, not silently. See
+# package-versions.yaml's own header for why this file's scope is
+# deliberately narrow: only the packages THIS repo's clusters install,
+# never package.json's own scaffolder-provided baseline.
+#
+# Rules may also carry a top-level "requires_flag" field. A rule with
+# requires_flag is SKIPPED unless that flag was passed to the interpreter
+# via --flag on the command line. This is how opt-in remediation clusters
+# stay inert by default — see linter-baseline-remediation below for why
+# this exists.
+#
+# Rules may also carry a top-level "requires_present: {section, name}"
+# field — the mirror image of requires_flag, gating on ON-DISK STATE
+# instead of a CLI flag. A rule with requires_present is SKIPPED unless
+# that dependency is already present. This is how a cluster branches on
+# "whichever linter ends up present" without ever guessing — see
+# lint-staged-hooks below, which only fires once eslint is present
+# (via linter-detection reporting it there originally, or via
+# linter-baseline-remediation installing it in the same run).
+#
+# Baseline this ruleset deliberately never redeclares (already present
+# on any create-vite react-ts scaffold, either the ESLint-era vintage
+# or the current oxlint-era one):
+#   dependencies:    react, react-dom
+#   devDependencies: typescript, vite, @vitejs/plugin-react,
+#                    @types/react, @types/react-dom, @types/node
+#   scripts:         dev, build, preview
+#   gitignore:       node_modules, dist, logs, .local, editor dirs — all
+#                    already written by create-vite's own scaffold (Tier 1
+#                    per 4_GITIGNORE-HANDOFF.md's classification). No cluster
+#                    ever needed for these, same "don't redeclare the
+#                    baseline" principle as the dependency/script list
+#                    above. Do NOT add generic Node.gitignore cruft
+#                    (Nuxt/Gatsby/Docusaurus/Serverless/etc.) defensively —
+#                    every gitignore block that ships here must be
+#                    traceable to a tool a specific cluster actually
+#                    installs.
+#
+# Rules are evaluated in ascending "priority" order. Ordering rationale
+# (kept in terms of cluster IDs, not raw numbers, so this stays correct
+# across future reorders):
+#   vite-baseline-gitignore sits first (priority 0) — no dependency on or
+#   from anything else in this file, genuinely order-independent, but
+#   placed at the very front since it's the one gap in the baseline
+#   itself (Vite's own scaffold doesn't write its own runtime-cache
+#   gitignore entries — confirmed against a real create-vite output, not
+#   assumed) rather than something a specific tool's cluster installs.
+#   typescript-check before lint-staged-hooks — a pre-commit type-check
+#   tool (tsc-files, used by lint-staged-hooks) assumes a working plain
+#   `tsc --noEmit` baseline already exists, so confirm that first.
+#   tsconfig-file-shape-report before tsconfig-environment-report before
+#   tsconfig-hygiene-remediation — the two later clusters both need to
+#   know which physical file actually holds compilerOptions, which is
+#   exactly what tsconfig-file-shape-report determines; both read that
+#   outcome via get_report_outcome(), which only sees rules that already
+#   ran. tsconfig-file-shape-report and tsconfig-environment-report sit
+#   right after typescript-check — grouped by concern, not "at the very
+#   top" — since they're refinements of the existing TypeScript-checking
+#   concern, always-safe pure diagnostics with zero remediation risk, so
+#   nothing is lost running them early.
+#   linting (linter-detection / linter-baseline-remediation) before
+#   husky-setup — husky-setup doesn't need to know eslint-vs-oxlint
+#   itself, it only needs to exist, but it's still ordered after linter
+#   resolution for readability (everything about "is a linter present"
+#   settled before anything about git hooks starts).
+#   husky-setup before lint-staged-hooks — husky-setup's create_file
+#   proposal is the real-world (not evaluation-order) prerequisite for a
+#   human to apply before .husky/pre-commit's managed lines make sense to
+#   apply — see husky-setup's own concern text.
+#   2026-09-08: lint-staged-hook-wiring-into-pre-commit and
+#   typecheck-hook-wiring-into-pre-commit — the two clusters that used to
+#   live here, each independently proposing one .husky/pre-commit line
+#   via file_content_present — are RETIRED. They had no cross-cluster
+#   ordering guarantee between them (see 5_PRECOMMIT-HANDOFF.md for why
+#   that's a real bug, not a style nitpick). Replaced by
+#   ensure_line_in_precommit steps folded directly into typescript-check
+#   (order:20) and lint-staged-hooks (order:10) — evaluation order (this
+#   cluster runs at priority 1, lint-staged-hooks at priority 7) is now
+#   fully decoupled from FILE order (order:10 before order:20), resolved
+#   once, centrally, by reconcile_precommit_lines() after every rule has
+#   evaluated. Don't resurrect the two retired clusters.
+#   All of the above before vitest-test-script — linting is now
+#   considered part of the baseline; a project's lint posture gets
+#   established/fixed before layering a test runner on top.
+#   tsconfig-hygiene-remediation runs dead LAST (after vitest-test-script)
+#   — deliberately late. It's opt-in remediation with a real "surprise
+#   new compile errors" blast radius, same reasoning that keeps
+#   linter-baseline-remediation off priority 0: higher-consequence,
+#   opt-in clusters shouldn't front-run the cheap, always-safe
+#   diagnostics that everything else in this file already is.
+#   Each Tier-2 gitignore block (see 4_GITIGNORE-HANDOFF.md's tier
+#   classification) rides along inside its owning cluster's existing
+#   checklist — no priority changes for those, since "does this tool's
+#   setup look complete" already includes its gitignore footprint, not a
+#   separate concern needing its own slot.
+
+- id: vite-baseline-gitignore
+  priority: 0
+  concern: >
+    Vite's own runtime cache files (build-timing metadata, dep
+    pre-bundling markers) aren't written to .gitignore by create-vite's
+    scaffold — confirmed by direct comparison against the current
+    official create-vite react-ts scaffold output, not assumed from a
+    possibly-outdated reference. A genuine gap in the baseline itself,
+    not an artifact of a stale reference file (see 4_GITIGNORE-HANDOFF.md's
+    Tier 3 classification, which flagged this specific gap as needing
+    verification before templating — now verified).
+
+    No existing cluster owns this: nothing in this design "installs"
+    Vite, since react/react-dom/vite/@vitejs/plugin-react are part of
+    the presupposed baseline every cluster already agrees never to
+    redeclare. So this needs its own minimal cluster rather than being
+    attached to typescript-check or vitest-test-script just because they
+    happen to run early — forcing it into either would misattribute
+    ownership to a tool that didn't introduce the gap.
+  checklist:
+    - type: ensure_block_in_gitignore
+      block: |
+        # Vite runtime cache
+        vite.config.js.timestamp-*
+        vite.config.ts.timestamp-*
+        .vite/
+
+- id: typescript-check
+  priority: 1
+  concern: >
+    TypeScript checking for this project — not just the standalone
+    typecheck script (kept as typescript-check rather than typecheck-script
+    or typescript-hygiene, both tried and dropped: the cluster already also
+    covers the `typescript` devDependency and the `typecheck` script — see
+    "Priority placement" note below for where tsconfig-file-shape-report
+    and tsconfig-environment-report now live, since they moved OUT of this
+    cluster's original design into their own clusters).
+    Does this project have a fast, build-independent way to run
+    the TypeScript compiler in check-only mode? create-vite's own "build"
+    script already runs tsc, but coupled to a full Vite build — this
+    part of the cluster is specifically about a standalone, CI-friendly
+    check.
+
+    2026-09-07: this cluster's `create_file` step for tsconfig.json
+    (defensive-only, proposed a single-file legacy template whenever
+    tsconfig.json was missing, regardless of any other file present) has
+    been REMOVED — it directly contradicted the new, more careful policy
+    tsconfig-file-shape-report now owns: an absent tsconfig is a KNOWN
+    LIMITATION with no remediation under any flag (see that cluster's own
+    concern for why), and the old step also had no awareness of the split
+    shape at all — it would have proposed a full legacy single-file
+    tsconfig.json even onto a project whose tsconfig.app.json already
+    existed (the exact "unrecognized" case tsconfig-file-shape-report is
+    built to catch and refuse to guess about). tsconfig.json.template
+    stays on disk as human reference — it's still what tsconfig-hygiene-
+    remediation's `single`-shape branch checks against — it's just no
+    longer wired into any create_file proposal.
+
+    2026-09-08: also now contributes the `yarn typecheck` /
+    `npm run typecheck` / `pnpm typecheck` line (pm-rendered via
+    run_command()) to .husky/pre-commit, via `ensure_line_in_precommit`
+    at order:20 — see 5_PRECOMMIT-HANDOFF.md. This REPLACES the retired
+    typecheck-hook-wiring-into-pre-commit cluster's file_content_present
+    approach, which had no way to guarantee this line lands AFTER
+    lint-staged-hooks' order:10 line despite this cluster evaluating
+    first (priority 1 vs. lint-staged-hooks' priority 7) — exactly the
+    cross-cluster write-ordering bug 5_PRECOMMIT-HANDOFF.md exists to fix.
+  checklist:
+    - type: dependency_presence
+      section: devDependencies
+      name: typescript
+      # Normally already true (spine-provided by create-vite). This
+      # step exists so the cluster is self-contained and defensible
+      # on its own, not because it expects to ever actually remediate
+      # this in practice.
+      on_missing:
+        install: { devDependencies: { typescript: "<typescript.version>" } }
+
+    - type: script_value
+      key: typecheck
+      expected: "tsc --noEmit"
+
+    - type: ensure_block_in_gitignore
+      block: |
+        # TypeScript build cache
+        *.tsbuildinfo
+
+    - type: ensure_line_in_precommit
+      script: typecheck
+      order: 20
+      # Full-project real check, runs LAST in the pre-commit hook —
+      # order:20 is deliberately higher than lint-staged-hooks' order:10,
+      # even though THIS cluster evaluates first (priority 1). Evaluation
+      # order and file order are independent by design — see
+      # reconcile_precommit_lines() and 5_PRECOMMIT-HANDOFF.md.
+
+- id: tsconfig-file-shape-report
+  priority: 2
+  concern: >
+    Which tsconfig SHAPE is this project using — single tsconfig.json
+    (legacy) vs. the split tsconfig.json + tsconfig.app.json +
+    tsconfig.node.json (current create-vite baseline)? Restructuring one
+    into the other touches vite.config.ts references and is genuinely
+    invasive — multi-file, real risk of breaking the build. This cluster
+    NEVER attempts migration, under any flag, current or future — it only
+    reports, so tsconfig-environment-report and tsconfig-hygiene-remediation
+    know which physical file actually holds compilerOptions before either
+    one reads or writes anything.
+
+    Four outcomes:
+    - `single` — root tsconfig.json holds compilerOptions directly,
+      tsconfig.app.json absent.
+    - `split` — root tsconfig.json is a references-only pointer,
+      tsconfig.app.json holds compilerOptions.
+    - `unrecognized` — tsconfig.app.json exists WITHOUT the root pointer.
+      Neither shape matches; surface this and stop, same "recognize the
+      edge of your own competence" principle already used elsewhere in
+      this file (see 1_CHECKLIST_INTERPRETER_HANDOFF.md's closing section)
+      — don't guess which shape was intended.
+    - `absent` — no tsconfig.json and no tsconfig.app.json at all. KNOWN
+      LIMITATION, BY DESIGN: no remediation exists for this outcome,
+      under any flag, current or future. If typescript is already a
+      devDependency (checked by typescript-check's own step), a total
+      absence of any tsconfig file is a rare, near-broken-repo edge
+      case, not a normal augment target — there's no non-arbitrary way to
+      choose "create 1 file" vs. "create 3," so this cluster deliberately
+      reports and stops rather than picking one. Same "a human decides,
+      the interpreter doesn't guess" treatment as `unrecognized`.
+  checklist:
+    - type: tsconfig_file_shape_report
+      report:
+        single: "single tsconfig.json (legacy shape) — compilerOptions read directly from the root file"
+        split: "split tsconfig.json + tsconfig.app.json + tsconfig.node.json (current create-vite shape) — compilerOptions read from tsconfig.app.json"
+        unrecognized: "tsconfig.app.json present WITHOUT root tsconfig.json — unrecognized shape, not migrated, resolve manually"
+        absent: "no tsconfig.json or tsconfig.app.json found — no remediation for this outcome, by design; typescript-check already confirmed the typescript devDependency itself"
+
+- id: tsconfig-environment-report
+  priority: 3
+  concern: >
+    Reports target/lib/module/moduleResolution/jsx/types verbatim from
+    whichever file tsconfig-file-shape-report identified as the
+    compilerOptions holder. DIAGNOSTIC-ONLY, PERMANENTLY — no flag, now or
+    ever, unlocks changing these. Unlike the hygiene flags in
+    tsconfig-hygiene-remediation below, these encode real, load-bearing
+    project constraints (does the runtime actually support ES2023 syntax,
+    is `bundler` module resolution safe here) that no template can safely
+    guess for an EXISTING project. Dropping a fresh create-vite-shaped
+    `target: es2023` onto a deliberately-ES2020 legacy project could
+    silently change what code the compiler considers valid or how it
+    transpiles — a correctness risk none of the other clusters in this
+    file carry, which is exactly why this one stays report-only forever.
+    If this step is ever tempted to grow a remediation branch, that's the
+    design being violated, not a sign it needs updating.
+  checklist:
+    - type: tsconfig_environment_report
+      target_file_by_shape: { single: tsconfig.json, split: tsconfig.app.json }
+      fields: [target, lib, module, moduleResolution, jsx, types]
+
+- id: linter-detection
+  priority: 4
+  concern: >
+    Does this project have a JS/TS linter at all, and which one?
+    Does NOT assume ESLint — checks for either eslint OR oxlint being
+    present, since current create-vite scaffolds ship oxlint by
+    default and older ones ship ESLint. "Neither present" is reported
+    as a gap needing a decision; "oxlint present, not eslint" (or vice
+    versa) is reported as a choice already made — never silently
+    supplemented or replaced. This rule ALWAYS runs (no requires_flag)
+    and is purely diagnostic — it never installs anything itself.
+    Actually fixing a both_absent gap is a separate, opt-in decision;
+    see linter-baseline-remediation below.
+  checklist:
+    - type: multi_presence_report
+      checks:
+        eslint_present: { section: devDependencies, name: eslint }
+        oxlint_present: { section: devDependencies, name: oxlint }
+      report:
+        both_absent: "no linter detected — see linter-baseline-remediation if this project should be brought up to standard"
+        eslint_only: "eslint in use"
+        oxlint_only: "oxlint in use"
+        both_present: "both present — unusual, flagged for manual review"
+
+- id: linter-baseline-remediation
+  priority: 5
+  requires_flag: augment_legacy_linting
+  concern: >
+    Brings a LEGACY project — scaffolded before the June 2026 create-vite
+    switch to an interactive eslint/oxlint/None prompt, or hand-rolled —
+    up to an ESLint baseline when it never had linting set up at all.
+    This is the intended, named scope of this cluster (see the flag name:
+    `augment_legacy_linting`). It is NOT part of linter-detection and does
+    not run by default — it only fires when the interpreter is explicitly
+    invoked with `--flag augment_legacy_linting`, since package.json alone
+    cannot prove a project is legacy versus merely young; passing the flag
+    IS you asserting that judgment call for this specific augment run.
+    Never make this the default behavior for a plain run.
+
+    Narrow technical footnote, not the primary case this cluster is for:
+    a post-June-2026 create-vite scaffold that was interactively prompted
+    and deliberately chose "None" would also show up as both_absent —
+    on-disk, that's indistinguishable from legacy neglect. Don't pass this
+    flag against a project where None was a conscious choice.
+
+    Installs an ESLint baseline (matching the pre-June-2026 create-vite
+    convention, which is what money-disk-ui itself uses) rather than
+    oxlint, since a human deliberately bringing a legacy project up to
+    standard should get the more configurable, longer-established option
+    unless they ask otherwise.
+  checklist:
+    - type: install_if_absent_all
+      checks:
+        - { section: devDependencies, name: eslint }
+        - { section: devDependencies, name: oxlint }
+      on_all_absent:
+        install:
+          devDependencies:
+            eslint: "<eslint.version>"
+            "@eslint/js": "<@eslint/js.version>"
+            typescript-eslint: "<typescript-eslint.version>"
+            eslint-plugin-react-hooks: "<eslint-plugin-react-hooks.version>"
+            eslint-plugin-react-refresh: "<eslint-plugin-react-refresh.version>"
+            globals: "<globals.version>"
+            # @eslint/js and globals both genuinely imported by
+            # eslint.config.js.template (import js from '@eslint/js',
+            # import globals from 'globals') — not optional, the config
+            # would crash on load without either.
+        add_scripts:
+          lint: "eslint ."
+        create_files:
+          - target: eslint.config.js
+            template: skills/frontend/react-vite-ts/templates/eslint.config.js.template
+            # Shares the SAME all-absent gate as the install/add_scripts
+            # above — this is a sub-block of on_all_absent, not a
+            # separate create_file step. That matters: if oxlint is
+            # already present, the whole block (install AND this file
+            # proposal) correctly no-ops together. A standalone
+            # create_file step here would have proposed eslint.config.js
+            # even when we decided NOT to install eslint — wrong.
+      # NOTE: if either eslint or oxlint is already present, this step
+      # is a complete no-op — it will never "top up" an existing eslint
+      # install or coexist alongside an existing oxlint choice. It only
+      # ever fires into a genuine void.
+
+    - type: ensure_block_in_gitignore
+      block: |
+        # ESLint cache
+        .eslintcache
+
+- id: husky-setup
+  priority: 6
+  concern: >
+    Makes sure husky (the git hook runner) is installed, wired via the
+    `prepare` script (husky v9's own setup mechanism — `npm/yarn install`
+    runs `prepare`, which runs `husky`, which points git's core.hooksPath
+    at .husky/), and that .husky/pre-commit EXISTS as a file at all.
+
+    Real-world prerequisite for `ensure_line_in_precommit`'s reconciled
+    proposal (see typescript-check and lint-staged-hooks, and
+    5_PRECOMMIT-HANDOFF.md) — a HUMAN needs to apply this cluster's
+    create_file proposal before applying the precommit-lines one, since
+    that's what makes the file exist to append into. NOT an interpreter
+    execution-order dependency, though: reconcile_precommit_lines() reads
+    real on-disk state once, at the very end of a run, regardless of
+    which cluster evaluated first — if the file is genuinely absent at
+    that point (nothing applied yet), reconciliation proposes the full
+    ordered pre-commit block directly, same as it would for any project
+    with no husky at all. Unconditional (no requires_flag, no
+    requires_present) — unlike linter-baseline-remediation and
+    lint-staged-hooks, this cluster doesn't need to know
+    eslint-vs-oxlint-vs-neither at all, it only needs to exist, so it
+    runs on every plain invocation regardless of linter state. Placed
+    after linter-baseline-remediation since it doesn't depend on that
+    decision either way.
+
+    create_file's exists-or-not semantics are the RIGHT fit here (unlike
+    for lint-staged-hooks): husky-setup's job is genuinely binary — does
+    the file exist, yes or no — it doesn't care about CONTENT the way
+    lint-staged-hooks does. money-disk-ui already has a pre-commit hook
+    (wired for tsc) — create_file correctly reports "skip" there, since
+    the file already exists; a fresh project gets the empty base template
+    instead.
+
+    Gitignore block only covers `.husky/_` (the internal helper dir husky
+    itself writes) — deliberately NOT `.husky/` itself, which must stay
+    committed for the hooks to exist in the repo at all.
+  checklist:
+    - type: dependency_presence
+      section: devDependencies
+      name: husky
+      on_missing:
+        install: { devDependencies: { husky: "<husky.version>" } }
+
+    - type: script_value
+      key: prepare
+      expected: "husky"
+
+    - type: create_file
+      target: .husky/pre-commit
+      template: skills/frontend/react-vite-ts/templates/husky-pre-commit-base.template.sh
+
+    - type: ensure_block_in_gitignore
+      block: |
+        # Husky internal helpers
+        .husky/_
+
+- id: lint-staged-hooks
+  priority: 7
+  requires_present: { section: devDependencies, name: eslint }
+  concern: >
+    Wires eslint (+ tsc-files, for type-checking just the staged files —
+    depends on typescript-check's plain `tsc --noEmit` baseline already
+    working) into a pre-commit hook via lint-staged, so bad code never
+    reaches a commit, "shift-left" from CI back to the developer's own
+    machine.
+
+    ESLINT BRANCH ONLY — scoped deliberately, matching the current
+    linter-detection/linter-baseline-remediation clusters which only ever
+    install eslint, never oxlint. Gated by `requires_present` rather than
+    `requires_flag`: this cluster doesn't need a human judgment call the
+    way legacy-vs-fresh does — it just needs to know which linter (if
+    any) ended up present, which linter-detection or
+    linter-baseline-remediation has already established earlier in the
+    SAME run (staged state feeds forward). If eslint is present — whether
+    already on disk, or freshly staged this run via
+    linter-baseline-remediation — this cluster fires. If it's absent
+    (both_absent, or oxlint chosen instead), it's skipped, recorded in
+    skipped_rules, same as any requires_flag skip.
+
+    An oxlint branch is NOT built — would need a different lint-staged
+    command shape (oxlint's own CLI, no tsc-files equivalent the same
+    way) and isn't needed by any stack this repo currently supports.
+    Don't add it speculatively; build it when an oxlint-choosing project
+    actually needs this cluster.
+
+    Config-file handling note: `.husky/pre-commit`'s *existence* is
+    husky-setup's job (runs before this cluster — hard prerequisite, not
+    just ordering style). This cluster's `ensure_line_in_precommit` step
+    (order:10) stages the `npx lint-staged` line's CONTENT, but the
+    actual write-ordering reconciliation against typescript-check's
+    order:20 line happens once, centrally, after every cluster in this
+    file has evaluated — see reconcile_precommit_lines() and
+    5_PRECOMMIT-HANDOFF.md. husky itself + the `prepare` script are
+    husky-setup's job too, not duplicated here.
+
+    2026-09-08: retired the separate lint-staged-hook-wiring-into-
+    pre-commit cluster this step used to live in (a file_content_present
+    approach with NO cross-cluster ordering guarantee against
+    typescript-check's typecheck line) — folded directly into this
+    cluster instead, matching 5_PRECOMMIT-HANDOFF.md's own "add the
+    order:10 step to lint-staged-hooks" instruction.
+  checklist:
+    - type: dependency_presence
+      section: devDependencies
+      name: lint-staged
+      on_missing:
+        install: { devDependencies: { lint-staged: "<lint-staged.version>" } }
+
+    - type: dependency_presence
+      section: devDependencies
+      name: tsc-files
+      # Version pin (and its "not verified against live npm" caveat) now
+      # lives in package-versions.yaml's tsc-files entry, not here —
+      # single source of truth, see that file's own header.
+      on_missing:
+        install: { devDependencies: { tsc-files: "<tsc-files.version>" } }
+
+    - type: object_key_value
+      parent_key: lint-staged
+      subkey: "*.{ts,tsx}"
+      expected: ["eslint --fix", "tsc-files --noEmit"]
+
+    - type: ensure_line_in_precommit
+      command: "npx lint-staged"
+      order: 10
+      # Fast, staged-files-only check, runs FIRST in the pre-commit hook
+      # — order:10 is lower than typescript-check's order:20, even though
+      # typescript-check evaluates first (priority 1 vs. this cluster's
+      # priority 7). npx is pm-agnostic — `command`, not `script`, same
+      # convention file_content_present already established.
+
+- id: vitest-test-script
+  priority: 8
+  concern: >
+    Can this project run its unit tests from a single, memorable
+    script? create-vite ships no testing setup at all — this is
+    entirely additive, no default to avoid restating. Comes after every
+    linting cluster above — linting is now considered part of the
+    baseline, established/fixed before layering a test runner on top.
+  checklist:
+    - type: dependency_presence
+      section: devDependencies
+      name: vitest
+      on_missing:
+        install: { devDependencies: { vitest: "<vitest.version>" } }
+
+    - type: script_value
+      key: test
+      expected: "vitest run"
+
+    - type: create_file
+      target: vitest.config.ts
+      template: skills/frontend/react-vite-ts/templates/vitest.config.ts.template
+      # NOT defensive, unlike tsconfig.json used to be above — no
+      # create-vite scaffold, at any vintage, ever ships this file, since
+      # vitest isn't part of the base scaffold at all. This is a genuine,
+      # expected gap on every fresh project and most legacy ones; it
+      # will fire on essentially every augment run that doesn't
+      # already have vitest fully set up.
+
+    - type: ensure_block_in_gitignore
+      block: |
+        # Test coverage
+        coverage
+        *.lcov
+
+- id: tsconfig-hygiene-remediation
+  priority: 9
+  requires_flag: augment_legacy_tsconfig
+  concern: >
+    Additive-only TypeScript strictness hardening — the actual "rigor"
+    delta this repo is for (see 2_TSCONFIG-HANDOFF.md), applied safely.
+    Only ever ADDS a missing flag at its standard value; a flag present
+    with a DIFFERENT value is a conflicts entry, same as everywhere
+    else in this file, never overwritten regardless of flag state —
+    these are safety-net flags (turning one on can surface new compile
+    errors, but can't silently change runtime behavior the way flipping
+    `target` could, which is exactly why tsconfig-environment-report's
+    fields stay permanently off-limits while these don't).
+
+    Opt-in via its OWN flag, augment_legacy_tsconfig — deliberately NOT
+    reusing augment_legacy_linting: a legacy project may have relaxed
+    strictness on purpose, and the file alone can't tell "never
+    configured" from "turned off deliberately," same ambiguity
+    linter-baseline-remediation already handles for linting. Conflating
+    the two flags would remove the human's ability to opt into
+    hardening tsconfig without also opting into the ESLint remediation,
+    or vice versa — genuinely unrelated concerns that happen to both be
+    "legacy augment" decisions.
+
+    Runs dead LAST (after even vitest-test-script) — deliberately late.
+    This is opt-in remediation with a real "surprise new compile errors"
+    blast radius, so it shouldn't compete for early attention alongside
+    every always-safe, always-run diagnostic cluster above it (same
+    reasoning that keeps linter-baseline-remediation off priority 0).
+    Depends on tsconfig-file-shape-report's outcome to know which file
+    to check — object_key_value's target_file_by_shape field resolves
+    that at eval time via get_report_outcome(), the first real exercise
+    of object_key_value ever pointed at a file other than package.json.
+    Silently contributes nothing if the shape was absent/unrecognized —
+    same reasoning as tsconfig-environment-report, nothing safe to
+    check, and tsconfig-file-shape-report already explained why.
+  checklist:
+    - type: object_key_value
+      target_file_by_shape: { single: tsconfig.json, split: tsconfig.app.json }
+      parent_key: compilerOptions
+      subkey: strict
+      expected: true
+
+    - type: object_key_value
+      target_file_by_shape: { single: tsconfig.json, split: tsconfig.app.json }
+      parent_key: compilerOptions
+      subkey: noImplicitReturns
+      expected: true
+
+    - type: object_key_value
+      target_file_by_shape: { single: tsconfig.json, split: tsconfig.app.json }
+      parent_key: compilerOptions
+      subkey: noUnusedLocals
+      expected: true
+
+    - type: object_key_value
+      target_file_by_shape: { single: tsconfig.json, split: tsconfig.app.json }
+      parent_key: compilerOptions
+      subkey: noUnusedParameters
+      expected: true
+
+    - type: object_key_value
+      target_file_by_shape: { single: tsconfig.json, split: tsconfig.app.json }
+      parent_key: compilerOptions
+      subkey: noFallthroughCasesInSwitch
+      expected: true
+
+    - type: object_key_value
+      target_file_by_shape: { single: tsconfig.json, split: tsconfig.app.json }
+      parent_key: compilerOptions
+      subkey: exactOptionalPropertyTypes
+      expected: true
+# --- Natural continuation, outlined only, NOT built yet ---------------
+# - id: vitest-react-testing-library  priority: 10  (jsdom +
+#     @testing-library/react + @testing-library/jest-dom, built on
+#     vitest-test-script's presence)
+#
+# --- Deferred by 4_GITIGNORE-HANDOFF.md's Tier 3 classification, not this pass:
+# - env-gitignore     (.env / .env.* / !.env.example — orthogonal to any
+#                       tooling cluster, needs its own home)
+# - .claude/ / CLAUDE.md gitignore (cross-stack concern, not react-vite-ts
+#                       specific — belongs in a cross-stack cluster/skill
+#                       if ever built, not here)

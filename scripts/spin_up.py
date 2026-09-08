@@ -32,7 +32,6 @@ def load_stack_module(category: str, stack: str):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", default="new")
     ap.add_argument("--frontend", default="")
     ap.add_argument("--agents", default="")  # stub — later stage
     args = ap.parse_args()
@@ -57,7 +56,7 @@ def main():
         print("    No implement.yml exists yet to write into — come back later.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Done. FRONTEND={args.frontend} scaffolding applied (manual merge step pending).")
+    print(f"Done. FRONTEND={args.frontend} checklist plan printed above — nothing was written (plan only).")
 
 
 if __name__ == "__main__":

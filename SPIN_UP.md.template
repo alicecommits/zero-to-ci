@@ -1,5 +1,3 @@
-MODE: new | augment
-
 ## Stack
 FRONTEND:      react-vite-ts       # implemented
 BACKEND:       fill-me-in          # not yet extracted

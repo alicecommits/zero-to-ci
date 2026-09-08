@@ -31,6 +31,17 @@ Yet to come:
 
 - ~~Make a main.sh that is the main spin up orchestrator, calling to more atomic sh files for each "theme" of conf, so it's easier to follow.~~ DONE — `scripts/spin_up.py` is now dispatch-only, delegates to `scripts/stacks/<category>/<stack>.py` (e.g. `scripts/stacks/frontend/react-vite-ts.py`). New stack = drop one file there, no edits to spin_up.py.
 
-- ~~track these commonalities... draw a matrix~~ DONE — see [`CONFIG_OWNERSHIP_MATRIX.md`](./CONFIG_OWNERSHIP_MATRIX.md), seeded with the current react-vite-ts stack + the one proven cross-cutting concern (`scripts/cross-cutting/merge_package_json.py`). Revisit it — per its own "when to revisit" section — the moment a second frontend or first backend stack lands, since most rows are currently "NOT YET EXTRACTED" only because there's nothing yet to force the extraction.
+- ~~track these commonalities... draw a matrix~~ DONE — see [`CONFIG_OWNERSHIP_MATRIX.md`](./CONFIG_OWNERSHIP_MATRIX.md), seeded with the current react-vite-ts stack + the one proven cross-cutting concern (~~`scripts/cross-cutting/merge_package_json.py`~~). Revisit it — per its own "when to revisit" section — the moment a second frontend or first backend stack lands, since most rows are currently "NOT YET EXTRACTED" only because there's nothing yet to force the extraction.
 
 - Questions on future API calls from python scripts linking to "spin_up.py"
+
+- **2026-09-07 — package.json provisioning rebuilt as a checklist-cluster
+  engine, `merge_package_json.py` retired (do not resurrect).** Full
+  design history (2 earlier iterations retired first, including a real
+  proven silent-overwrite bug in the 2nd one) lives in
+  `major-evolutions/1_CHECKLIST_INTERPRETER_HANDOFF.md` — read that
+  before touching `checklist_interpreter.py` or any `checklist-rules.yaml`.
+  `CONFIG_OWNERSHIP_MATRIX.md` rows updated to match. The "execution /
+  gating design" (turning a plan into actual writes) is explicitly
+  conceptual-only, deliberately not built — keep it that way until it's
+  actually picked up as its own task.

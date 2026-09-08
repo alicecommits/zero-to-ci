@@ -29,18 +29,39 @@ correctly, not the point of the repo itself.
 scripts/          entry points, invoked directly
   spin_up.py        dispatch only — routes each flag to its stack script
   stacks/           atomic per-stack logic, one file per <category>/<stack>
-    frontend/react-vite-ts.py   real logic for --frontend react-vite-ts
+    frontend/react-vite-ts.py   thin pointer: calls the checklist engine
+                                 with this stack's checklist-rules-react-vite-ts.yaml
   cross-cutting/    logic shared across stacks, not owned by any one of them
-    merge_package_json.py        deterministic package.json diff/merge
-    test_merge_package_json.py   sibling unit tests, same dir
+    checklist_interpreter.py         concern-cluster engine — reads a
+                                      checklist-rules-react-vite-ts.yaml, prints a
+                                      colored PLAN (never writes files)
+    colors.py                        shared ANSI palette
   preflight.py      asserts environment + config are sane
 
+major-evolutions/ 6 ordered handoff notes, the design-history record this
+                  repo is built from — read before touching the engine or
+                  any checklist-rules-react-vite-ts.yaml:
+                  0_FROM-PKG-DIFF-TO-CHECKLIST-RULES-PARADIGM.md (origin
+                  context), 1_CHECKLIST_INTERPRETER_HANDOFF.md (canonical
+                  engine design rationale), 2_TSCONFIG-HANDOFF.md,
+                  3_MODE-NEW-SIMPLIFICATION-HANDOFF.md,
+                  4_GITIGNORE-HANDOFF.md, 5_PRECOMMIT-HANDOFF.md
+
 skills/           templates + SKILL.md files, grouped by concern
-  frontend/         per-frontend-stack setup (linting, CI wiring)
-  backend/          per-backend-stack setup       [not yet extracted]
-  devops/           CI/CD, agents, review, infra
-  cross-cutting/    stuff spanning frontend+backend  [not yet extracted]
-  infra/            Terraform/Ansible                [Wave 8+]
+  frontend/
+    react-vite-ts/    checklist-rules-react-vite-ts.yaml (10 clusters) +
+                       package-versions.yaml (single source of truth for
+                       every version pin, resolved via <package.version>
+                       placeholders) + templates/ (tsconfig.json.template,
+                       vitest.config.ts.template, eslint.config.js.template,
+                       husky-pre-commit-base.template.sh, plus 2 human-
+                       reference-only files no longer wired into any
+                       proposal: husky-pre-commit.template.sh and
+                       .gitignore.template)
+  backend/           per-backend-stack setup       [not yet extracted]
+  devops/            CI/CD, agents, review, infra
+  cross-cutting/     stuff spanning frontend+backend  [not yet extracted]
+  infra/             Terraform/Ansible                [Wave 8+]
 ```
 
 ## Skill vs script — the rule this repo follows
@@ -61,13 +82,37 @@ discipline is part of what makes this repo worth pointing someone to.
 - **Quality Foundation stage — in progress.**
   - Frontend ESLint (flat config, typescript-eslint, react-hooks):
     extracted from money-disk, first manual pass fixes applied.
-  - `scripts/cross-cutting/merge_package_json.py`: deterministic augment-mode
-    package.json diff — dependencies/devDependencies diffed by
-    presence only (never overwrites a pinned version), scripts/
-    lint-staged diffed by key with explicit CONFLICT flagging.
-    Live-tested against the real money-disk-ui package.json.
-  - `skills/frontend/react-vite-ts/package.json.tooling.snippet.json`
-    is the reference this diffs against.
+  - `scripts/cross-cutting/checklist_interpreter.py`: the checklist-cluster
+    augment engine (3rd design iteration — 2 earlier ones retired, see
+    `major-evolutions/1_CHECKLIST_INTERPRETER_HANDOFF.md`). Reads a stack's `checklist-rules-react-vite-ts.yaml`,
+    evaluates concern clusters (grouped by semantic ownership, e.g.
+    "everything ESLint provisions" as one unit, not by JSON section),
+    prints a colored plan. Never writes a file itself — turning a plan
+    into an actual write is a deliberately deferred "execution/gating"
+    design, not built yet. Two step types propose more than a single
+    key/value diff: `ensure_block_in_gitignore` (per-cluster, content-
+    based `.gitignore` block matching — any order/formatting, see
+    `major-evolutions/4_GITIGNORE-HANDOFF.md`) and `ensure_line_in_precommit`
+    (cross-cluster, two-phase: each owning cluster stages one
+    `.husky/pre-commit` line, a single centralized reconciliation pass
+    orders and proposes them together — see
+    `major-evolutions/5_PRECOMMIT-HANDOFF.md`).
+  - `skills/frontend/react-vite-ts/checklist-rules-react-vite-ts.yaml`: this
+    stack's 10 clusters — `vite-baseline-gitignore`, package.json-level
+    (`typescript-check`, `linter-detection`, `linter-baseline-remediation`
+    opt-in, `husky-setup`, `lint-staged-hooks`, `vitest-test-script`), and
+    tsconfig.json-level (`tsconfig-file-shape-report` and
+    `tsconfig-environment-report`, both permanently diagnostic-only —
+    never remediate, under any flag; `tsconfig-hygiene-remediation`, opt-in
+    via its own `--flag augment_legacy_tsconfig`, additive-only). See
+    `major-evolutions/2_TSCONFIG-HANDOFF.md` for why tsconfig needed a stricter 3-way risk
+    split than the linting clusters. Live-tested against the real
+    money-disk-ui package.json (clean — zero installs needed), a synthetic
+    fresh scaffold, and all 4 tsconfig shape outcomes (single/split/
+    unrecognized/absent). `CONFIG_OWNERSHIP_MATRIX.md` tracks, per cluster,
+    what each one contributes to `.gitignore` and to the pre-commit hook.
+  - This repo is otherwise stdlib-only by policy; PyYAML is the one
+    explicit exception (`requirements.txt`) — see that file for why.
   - Backend (Ruff/Pyright), CI workflow, dependabot, Playwright:
     not yet extracted.
 - Agent-driven implementation + review layers: not started — see

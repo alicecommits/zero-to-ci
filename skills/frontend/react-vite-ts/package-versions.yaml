@@ -1,0 +1,64 @@
+# skills/frontend/react-vite-ts/package-versions.yaml
+#
+# Single source of truth for every version pin
+# checklist-rules-react-vite-ts.yaml references via <package.version>
+# placeholders. Loaded automatically by checklist_interpreter.py — same
+# directory as the rules file, filename convention, no CLI flag needed
+# (see resolve_placeholders() in scripts/cross-cutting/checklist_interpreter.py).
+#
+# Scope, deliberately narrow: ONLY the packages this repo's OWN clusters
+# propose installing on top of the baseline. package.json's own baseline
+# (react, react-dom, vite, typescript, @vitejs/plugin-react, @types/*,
+# etc.) is NOT tracked here — this repo works off whatever version
+# create-vite's own scaffold currently pins, per
+# major-evolutions/3_MODE-NEW-SIMPLIFICATION-HANDOFF.md's entire premise: the scaffolder is
+# the source of truth for its own baseline, never a hand-maintained
+# template that can only go stale. This file exists only for the small,
+# genuinely hand-curated set of packages THIS repo adds — a different,
+# much smaller concern.
+#
+# Placeholder syntax used in checklist-rules-react-vite-ts.yaml:
+#   "<package-name.version>"  ->  resolved to this file's package-name.version
+#
+# Each entry may also carry a `note` field — free text surfaced nowhere
+# automatically (the interpreter only ever reads `version`), just a place
+# to keep provenance/confidence context next to the pin it's about,
+# instead of scattered as inline YAML comments the rules file had before.
+
+typescript:
+  version: "^5.4.5"
+
+vitest:
+  version: "^2.1.9"
+
+husky:
+  version: "^9.1.7"
+
+lint-staged:
+  version: "^15.2.0"
+
+tsc-files:
+  version: "^1.1.4"
+  note: >
+    Best-effort pin, NOT verified against the live npm registry the way
+    the oxlint fork or the eslint baseline versions below were (see
+    major-evolutions/1_CHECKLIST_INTERPRETER_HANDOFF.md) — double check before trusting it
+    blindly.
+
+eslint:
+  version: "^9.9.1"
+
+"@eslint/js":
+  version: "^9.9.1"
+
+typescript-eslint:
+  version: "^8.5.0"
+
+eslint-plugin-react-hooks:
+  version: "^5.1.0"
+
+eslint-plugin-react-refresh:
+  version: "^0.4.11"
+
+globals:
+  version: "^15.9.0"
